@@ -9,8 +9,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-djangoProject/.idea/
-djangoProject/Models
+djangoProject1/.idea/
+djangoProject1/Models
 develop-eggs/
 dist/
 downloads/

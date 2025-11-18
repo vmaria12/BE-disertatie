@@ -1,2 +1,0 @@
-nume = "Ana"
-print(nume)
