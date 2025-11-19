@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from .views import TumorDetectionView, TumorDetectionJSONView
+from .views import TumorDetectionView, TumorDetectionJSONView, YoloVotingView, YoloVotingComplexView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,4 +28,6 @@ urlpatterns = [
 
     path('api/detect-tumor/yolo/<str:version>/image', TumorDetectionView.as_view(), name='detect-tumor'),
     path('api/detect-tumor/yolo/<str:version>/json', TumorDetectionJSONView.as_view(), name='detect-tumor-json'),
+    path('api/detect-tumor/yolo/voting-likelihood', YoloVotingView.as_view(), name='detect-tumor-voting'),
+    path('api/detect-tumor/yolo/voting-complex/likelihood', YoloVotingComplexView.as_view(), name='detect-tumor-voting-complex'),
 ]
