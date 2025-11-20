@@ -23,7 +23,7 @@ class TumorDetectionView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Upload Imagine)",
+        summary="Detectie Tumora (Selectare Yolo manual) ==> Imagine",
         description="Încarcă o imagine MRI. Selectează modelul de Yolo dorit prin URL: v8, v9 sau v12. Returnează imaginea cu detecțiile desenate.",
         parameters=[
             OpenApiParameter(
@@ -108,8 +108,8 @@ class TumorDetectionJSONView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Răspuns JSON)",
-        description="Încarcă o imagine MRI și primești un răspuns JSON cu rezultatele detecției: dacă există tumoare și procentajul de încredere.",
+        summary="Detectie Tumora (Selectare Yolo manual) ==> Răspuns JSON",
+        description="Încarcă o imagine MRI și primești un răspuns JSON cu rezultatele detecției: dacă există tumoare și acuratetia.",
         parameters=[
             OpenApiParameter(
                 name='version',
@@ -251,8 +251,8 @@ class YoloVotingView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Voting Ensemble)",
-        description="Rulează YOLO v8, v9 și v12 pe aceeași imagine. Însumează probabilitățile detecțiilor pentru fiecare clasă și decide clasa finală.",
+        summary="Yolo (Voting Suma probabilităților) ==> JSON",
+        description="Rulează YOLO v8, v9 și v12 pe aceeași imagine",
         request={
             'multipart/form-data': {
                 'type': 'object',
@@ -363,8 +363,8 @@ class YoloVotingComplexView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Voting + Imagine)",
-        description="Returnează imaginea procesată (PNG). Datele detaliate (JSON) sunt incluse în header-ul 'X-Voting-Data'.",
+        summary="Yolo (Voting Suma probabilităților) ==>  Imagine + JSON",
+        description="Returnează imaginea procesată (PNG)",
         request={
             'multipart/form-data': {
                 'type': 'object',
@@ -517,7 +517,7 @@ class YoloVotingLabelView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Voting Label)",
+        summary="Yolo (Voting Label) ==> JSON",
         description="Rulează YOLO v8, v9 și v12. Numără aparițiile fiecărei clase detectate și decide clasa finală pe baza majorității.",
         request={
             'multipart/form-data': {
@@ -640,8 +640,8 @@ class YoloVotingComplexLabelView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     @extend_schema(
-        summary="Detectie Tumora (Voting Label + Imagine)",
-        description="Returnează imaginea procesată (PNG) folosind logica de votare pe etichete. Datele detaliate (JSON) sunt incluse în header-ul 'X-Voting-Data'.",
+        summary="Yolo (Voting Label ) ==> Imagine + JSON",
+        description="Returnează imaginea procesată (PNG) folosind logica de votare pe etichete.",
         request={
             'multipart/form-data': {
                 'type': 'object',
