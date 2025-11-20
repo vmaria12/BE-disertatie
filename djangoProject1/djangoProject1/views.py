@@ -511,3 +511,253 @@ class YoloVotingComplexView(APIView):
                 {"error": f"Eroare la procesare complexă: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class YoloVotingLabelView(APIView):
+    """Endpoint care rulează v8, v9, v12 și votează pe baza numărului de etichete."""
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Detectie Tumora (Voting Label)",
+        description="Rulează YOLO v8, v9 și v12. Numără aparițiile fiecărei clase detectate și decide clasa finală pe baza majorității.",
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Selectează fișierul MRI'
+                    }
+                },
+                'required': ['image']
+            }
+        },
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        if 'image' not in request.FILES:
+            return Response(
+                {"error": "Trebuie să încarci o imagine (key='image')"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            uploaded_file = request.FILES['image']
+            original_image = Image.open(uploaded_file)
+            
+            model_results = {}
+            class_counts = {}
+
+            for version, model_path in MODEL_PATHS.items():
+                try:
+                    model = YOLO(model_path)
+                    results = model.predict(original_image, conf=0.25)
+                    detections = results[0].boxes
+                    
+                    current_model_detections = []
+                    
+                    for box in detections:
+                        confidence = float(box.conf[0])
+                        class_id = int(box.cls[0])
+                        class_name = model.names[class_id]
+                        
+                        current_model_detections.append({
+                            "clasa": class_name,
+                            "confidence": round(confidence, 4),
+                            "confidence_procent": f"{round(confidence * 100, 2)}%"
+                        })
+                        
+                        if class_name in class_counts:
+                            class_counts[class_name] += 1
+                        else:
+                            class_counts[class_name] = 1
+                            
+                    model_results[version] = current_model_detections
+                    
+                except Exception as e:
+                    model_results[version] = {"error": str(e)}
+
+            if not class_counts:
+                winning_class = "Nu s-a detectat tumoare"
+                max_count = 0
+            else:
+                winning_class = max(class_counts, key=class_counts.get)
+                max_count = class_counts[winning_class]
+
+            response_data = {
+                "individual_results": model_results,
+                "voting_result": {
+                    "winning_class": winning_class,
+                    "vote_count": max_count,
+                    "all_counts": class_counts
+                }
+            }
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Eroare la procesare voting label: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class YoloVotingComplexLabelView(APIView):
+    """
+    Endpoint nou care:
+    1. Rulează v8, v9, v12.
+    2. Calculează Voting pe baza numărului de etichete (Label Voting).
+    3. Identifică cea mai bună detecție pentru clasa câștigătoare.
+    4. Desenează acea detecție pe imagine.
+    5. Returnează IMAGINEA (PNG).
+    6. Returnează datele JSON în header-ul 'X-Voting-Data'.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        summary="Detectie Tumora (Voting Label + Imagine)",
+        description="Returnează imaginea procesată (PNG) folosind logica de votare pe etichete. Datele detaliate (JSON) sunt incluse în header-ul 'X-Voting-Data'.",
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'image': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Selectează fișierul MRI'
+                    }
+                },
+                'required': ['image']
+            }
+        },
+        responses={
+            200: OpenApiTypes.BINARY,
+            400: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        if 'image' not in request.FILES:
+            return Response(
+                {"error": "Trebuie să încarci o imagine (key='image')"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            uploaded_file = request.FILES['image']
+            original_image = Image.open(uploaded_file).convert("RGB")
+            
+            model_results = {}
+            class_counts = {}
+            all_detections_flat = []
+
+            # 1. Rulare Modele
+            for version, model_path in MODEL_PATHS.items():
+                try:
+                    model = YOLO(model_path)
+                    results = model.predict(original_image, conf=0.25)
+                    detections = results[0].boxes
+                    
+                    current_model_detections = []
+                    
+                    for box in detections:
+                        confidence = float(box.conf[0])
+                        class_id = int(box.cls[0])
+                        class_name = model.names[class_id]
+                        
+                        # Coordonate
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        box_coords = {
+                            "x1": round(x1, 2), "y1": round(y1, 2),
+                            "x2": round(x2, 2), "y2": round(y2, 2)
+                        }
+
+                        det_obj = {
+                            "clasa": class_name,
+                            "confidence": round(confidence, 4),
+                            "confidence_procent": f"{round(confidence * 100, 2)}%",
+                            "bounding_box": box_coords,
+                            "model": version
+                        }
+                        current_model_detections.append(det_obj)
+                        all_detections_flat.append(det_obj)
+                        
+                        # Label Voting Aggregation
+                        if class_name in class_counts:
+                            class_counts[class_name] += 1
+                        else:
+                            class_counts[class_name] = 1
+                            
+                    model_results[version] = current_model_detections
+                    
+                except Exception as e:
+                    model_results[version] = {"error": str(e)}
+
+            # 2. Determinare Câștigător Voting (Label)
+            if not class_counts:
+                winning_class = "Nu s-a detectat tumoare"
+                max_count = 0
+                best_detection = None
+            else:
+                winning_class = max(class_counts, key=class_counts.get)
+                max_count = class_counts[winning_class]
+                
+                # 3. Găsire "Cea mai bună detecție" pentru clasa câștigătoare
+                winning_candidates = [d for d in all_detections_flat if d['clasa'] == winning_class]
+                
+                if winning_candidates:
+                    best_detection = max(winning_candidates, key=lambda x: x['confidence'])
+                else:
+                    best_detection = None
+
+            # 4. Desenare pe Imagine
+            processed_image = original_image.copy()
+            if best_detection:
+                draw = ImageDraw.Draw(processed_image)
+                coords = best_detection['bounding_box']
+                x1, y1, x2, y2 = coords['x1'], coords['y1'], coords['x2'], coords['y2']
+                
+                draw.rectangle([x1, y1, x2, y2], outline="blue", width=3) # Blue for label voting distinction
+                
+                text = f"{best_detection['clasa']} {best_detection['confidence_procent']}"
+                try:
+                    font = ImageFont.truetype("arial.ttf", 20)
+                except:
+                    font = ImageFont.load_default()
+                
+                text_bbox = draw.textbbox((x1, y1), text, font=font)
+                draw.rectangle(text_bbox, fill="blue")
+                draw.text((x1, y1), text, fill="white", font=font)
+
+            # 5. Salvare Imagine în Buffer
+            buffer = io.BytesIO()
+            processed_image.save(buffer, format="PNG")
+            buffer.seek(0)
+
+            # 6. Pregătire Date JSON pentru Header
+            json_data = {
+                "individual_results": model_results,
+                "voting_result": {
+                    "winning_class": winning_class,
+                    "vote_count": max_count,
+                    "all_counts": class_counts
+                },
+                "best_detection": best_detection
+            }
+            
+            # Serializare JSON și codare Base64
+            json_str = json.dumps(json_data)
+            json_b64 = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+            response = HttpResponse(buffer, content_type="image/png")
+            response['X-Voting-Data'] = json_b64
+            return response
+
+        except Exception as e:
+            return Response(
+                {"error": f"Eroare la procesare complexă label: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
