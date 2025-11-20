@@ -551,6 +551,7 @@ class YoloVotingLabelView(APIView):
             
             model_results = {}
             class_counts = {}
+            class_probs_sum = {}
 
             for version, model_path in MODEL_PATHS.items():
                 try:
@@ -573,10 +574,21 @@ class YoloVotingLabelView(APIView):
                         
                         if class_name in class_counts:
                             class_counts[class_name] += 1
+                            class_probs_sum[class_name] += confidence
                         else:
                             class_counts[class_name] = 1
+                            class_probs_sum[class_name] = confidence
                             
                     model_results[version] = current_model_detections
+                    
+                    if not current_model_detections:
+                        class_name = "Nu s-a detectat tumoare"
+                        if class_name in class_counts:
+                            class_counts[class_name] += 1
+                            class_probs_sum[class_name] += 1.0
+                        else:
+                            class_counts[class_name] = 1
+                            class_probs_sum[class_name] = 1.0
                     
                 except Exception as e:
                     model_results[version] = {"error": str(e)}
@@ -585,7 +597,15 @@ class YoloVotingLabelView(APIView):
                 winning_class = "Nu s-a detectat tumoare"
                 max_count = 0
             else:
-                winning_class = max(class_counts, key=class_counts.get)
+                max_votes = max(class_counts.values())
+                candidates = [c for c, v in class_counts.items() if v == max_votes]
+                
+                if len(candidates) == 1:
+                    winning_class = candidates[0]
+                else:
+                    # Tie detected - use sum of probabilities
+                    winning_class = max(candidates, key=lambda c: class_probs_sum.get(c, 0))
+                
                 max_count = class_counts[winning_class]
 
             response_data = {
@@ -593,7 +613,8 @@ class YoloVotingLabelView(APIView):
                 "voting_result": {
                     "winning_class": winning_class,
                     "vote_count": max_count,
-                    "all_counts": class_counts
+                    "all_counts": class_counts,
+                    "probability_sums": {k: round(v, 4) for k, v in class_probs_sum.items()}
                 }
             }
 
@@ -653,6 +674,7 @@ class YoloVotingComplexLabelView(APIView):
             
             model_results = {}
             class_counts = {}
+            class_probs_sum = {}
             all_detections_flat = []
 
             # 1. Rulare Modele
@@ -689,10 +711,21 @@ class YoloVotingComplexLabelView(APIView):
                         # Label Voting Aggregation
                         if class_name in class_counts:
                             class_counts[class_name] += 1
+                            class_probs_sum[class_name] += confidence
                         else:
                             class_counts[class_name] = 1
+                            class_probs_sum[class_name] = confidence
                             
                     model_results[version] = current_model_detections
+                    
+                    if not current_model_detections:
+                        class_name = "Nu s-a detectat tumoare"
+                        if class_name in class_counts:
+                            class_counts[class_name] += 1
+                            class_probs_sum[class_name] += 1.0
+                        else:
+                            class_counts[class_name] = 1
+                            class_probs_sum[class_name] = 1.0
                     
                 except Exception as e:
                     model_results[version] = {"error": str(e)}
@@ -703,7 +736,15 @@ class YoloVotingComplexLabelView(APIView):
                 max_count = 0
                 best_detection = None
             else:
-                winning_class = max(class_counts, key=class_counts.get)
+                max_votes = max(class_counts.values())
+                candidates = [c for c, v in class_counts.items() if v == max_votes]
+                
+                if len(candidates) == 1:
+                    winning_class = candidates[0]
+                else:
+                    # Tie detected - use sum of probabilities
+                    winning_class = max(candidates, key=lambda c: class_probs_sum.get(c, 0))
+                
                 max_count = class_counts[winning_class]
                 
                 # 3. Găsire "Cea mai bună detecție" pentru clasa câștigătoare
@@ -744,7 +785,8 @@ class YoloVotingComplexLabelView(APIView):
                 "voting_result": {
                     "winning_class": winning_class,
                     "vote_count": max_count,
-                    "all_counts": class_counts
+                    "all_counts": class_counts,
+                    "probability_sums": {k: round(v, 4) for k, v in class_probs_sum.items()}
                 },
                 "best_detection": best_detection
             }
