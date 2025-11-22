@@ -20,6 +20,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from .views import TumorDetectionView, TumorDetectionJSONView, YoloVotingView, YoloVotingComplexView, YoloVotingLabelView, YoloVotingComplexLabelView
 from .views_cnn_vit import TumorClassificationCNNView
 from .views_cnn_vit_voting import CnnVitVotingLikelihoodView
+from .views_cnn_vit_voting_label import CnnVitVotingLabelView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -38,5 +39,6 @@ urlpatterns = [
     
     #Neuronal Network
     path('api/detect-tumor/neuronal-network/voting-likelihood', CnnVitVotingLikelihoodView.as_view(), name='detect-tumor-cnn-voting'),
+    path('api/detect-tumor/neuronal-network/voting-label', CnnVitVotingLabelView.as_view(), name='detect-tumor-cnn-voting-label'),
     path('api/detect-tumor/neuronal-network/<str:model_type>', TumorClassificationCNNView.as_view(), name='detect-tumor-classification'),
 ]
