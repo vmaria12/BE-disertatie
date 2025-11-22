@@ -160,6 +160,29 @@ CLASSES = ['glioma', 'meningioma', 'notumor', 'pituitary']
 # Cache for loaded models
 LOADED_MODELS = {}
 
+import os
+import numpy as np
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.conf import settings
+from django.http import HttpResponse
+from PIL import Image, ImageDraw, ImageFont
+import io
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+
+# --- 1. Definim căile către modele CNN + ViT ---
+MODEL_PATHS = {
+    'efficientnet_b7': r"BE-disertatie\djangoProject1\Models\CNN\efficientnet_b7.h5",
+    'resnet101': r"BE-disertatie\djangoProject1\Models\CNN\resnet101_brain.pth",
+    'vit_b16': r"BE-disertatie\djangoProject1\Models\CNN\vit_b16_brain.pth"
+}
+
+CLASSES = ['glioma', 'meningioma', 'notumor', 'pituitary']
+
+# Cache for loaded models
+LOADED_MODELS = {}
+
 def load_efficientnet(path):
     import tensorflow as tf
     # Check if GPU is available for TF, though not strictly necessary for load
@@ -178,7 +201,7 @@ def predict_efficientnet(model, image):
     score = tf.nn.softmax(predictions[0])
     class_idx = np.argmax(score)
     confidence = 100 * np.max(score)
-    return CLASSES[class_idx], confidence
+    return CLASSES[class_idx], confidence, score.numpy().tolist()
 
 def load_pytorch_model(path, model_type):
     import torch
@@ -283,7 +306,7 @@ def predict_pytorch(model, image):
     probabilities = torch.nn.functional.softmax(output[0], dim=0)
     confidence, cat_id = torch.max(probabilities, 0)
     
-    return CLASSES[cat_id.item()], confidence.item() * 100
+    return CLASSES[cat_id.item()], confidence.item() * 100, probabilities.cpu().numpy().tolist()
 
 class TumorClassificationCNNView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -318,8 +341,9 @@ class TumorClassificationCNNView(APIView):
             200: {
                 'type': 'object',
                 'properties': {
-                    'tumor_type': {'type': 'string'},
-                    'accuracy': {'type': 'string'},
+                    'predicted_class': {'type': 'string'},
+                    'confidence': {'type': 'string'},
+                    'all_probabilities': {'type': 'object'},
                     'model': {'type': 'string'}
                 }
             },
@@ -373,14 +397,20 @@ class TumorClassificationCNNView(APIView):
         # Predict
         try:
             if model_type == 'efficientnet_b7':
-                label, accuracy = predict_efficientnet(model, image)
+                label, accuracy, probs = predict_efficientnet(model, image)
             else:
-                label, accuracy = predict_pytorch(model, image)
+                label, accuracy, probs = predict_pytorch(model, image)
         except Exception as e:
              return Response({"error": f"Prediction failed: {str(e)}"}, status=500)
              
+        # Format probabilities
+        all_probabilities = {}
+        for idx, prob in enumerate(probs):
+             all_probabilities[CLASSES[idx]] = f"{prob * 100:.2f}%"
+
         return Response({
-            "tumor_type": label,
-            "accuracy": f"{accuracy:.2f}%",
+            "predicted_class": label,
+            "confidence": f"{accuracy:.2f}%",
+            "all_probabilities": all_probabilities,
             "model": model_type
         })
