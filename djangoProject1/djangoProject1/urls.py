@@ -21,7 +21,7 @@ from .views import TumorDetectionView, TumorDetectionJSONView, YoloVotingView, Y
 from .views_cnn_vit import TumorClassificationCNNView
 from .views_cnn_vit_voting import CnnVitVotingLikelihoodView
 from .views_cnn_vit_voting_label import CnnVitVotingLabelView
-from .views_classification_report import ClassificationReportView
+from .views_classification_report import ClassificationReportView, ClassificationReportCroppedView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -45,4 +45,5 @@ urlpatterns = [
     
     # Reports
     path('api/reports/classification-report', ClassificationReportView.as_view(), name='classification-report'),
+    path('api/reports/classification-report-cropped', ClassificationReportCroppedView.as_view(), name='classification-report-cropped'),
 ]
