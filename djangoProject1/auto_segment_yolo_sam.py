@@ -11,7 +11,7 @@ def run_auto_segmentation():
 
     # SAM model name (will be downloaded automatically by ultralytics if not present)
     # You can also specify a local path if you have downloaded it manually
-    sam_model_name = "sam2.1_b.pt"
+    sam_model_name = os.path.join(base_dir, 'Models', 'SAM',"sam2.1_b.pt")
 
     # Directory containing the images you want to annotate
     # Defaulting to 'assets' in the current directory. Change this to your image folder path.
