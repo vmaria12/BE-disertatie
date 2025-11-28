@@ -5,7 +5,15 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.conf import settings
 
+from drf_spectacular.utils import extend_schema
+from .serializers import ClassificationReportItemSerializer
+
 class ClassificationReportView(APIView):
+    @extend_schema(
+        responses={200: ClassificationReportItemSerializer(many=True)},
+        summary="Get Classification Report (Full Image)",
+        description="Returns the classification report data for full images."
+    )
     def get(self, request):
         csv_path = os.path.join(settings.BASE_DIR, 'classification_report_imagine_completa.csv')
         
@@ -26,6 +34,11 @@ class ClassificationReportView(APIView):
             return Response({'error': str(e)}, status=500)
 
 class ClassificationReportCroppedView(APIView):
+    @extend_schema(
+        responses={200: ClassificationReportItemSerializer(many=True)},
+        summary="Get Classification Report (Cropped Image)",
+        description="Returns the classification report data for cropped images."
+    )
     def get(self, request):
         csv_path = os.path.join(settings.BASE_DIR, 'classification_report_imagine_decupata.csv')
         

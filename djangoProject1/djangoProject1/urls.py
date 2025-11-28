@@ -22,6 +22,7 @@ from .views_cnn_vit import TumorClassificationCNNView
 from .views_cnn_vit_voting import CnnVitVotingLikelihoodView
 from .views_cnn_vit_voting_label import CnnVitVotingLabelView
 from .views_classification_report import ClassificationReportView, ClassificationReportCroppedView
+from .views_auto_annotate import AutoAnnotateView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -46,4 +47,7 @@ urlpatterns = [
     # Reports
     path('api/reports/classification-report', ClassificationReportView.as_view(), name='classification-report'),
     path('api/reports/classification-report-cropped', ClassificationReportCroppedView.as_view(), name='classification-report-cropped'),
+    
+    # Auto Annotation
+    path('api/auto-annotate', AutoAnnotateView.as_view(), name='auto-annotate'),
 ]
