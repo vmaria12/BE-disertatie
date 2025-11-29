@@ -156,11 +156,35 @@ class AutoAnnotateView(APIView):
             # Encode to PNG base64
             _, buffer = cv2.imencode('.png', img)
             img_base64 = base64.b64encode(buffer).decode('utf-8')
+
+            # Create segmented image (black background, only tumor)
+            segmented_img_base64 = None
+            if annotation_data:
+                mask = np.zeros_like(img)
+                # Re-parse points for mask creation (we need to do this again or store them)
+                lines = annotation_data.strip().split('\n')
+                all_points = []
+                for line in lines:
+                    if not line.strip(): continue
+                    parts = line.strip().split()
+                    coords = [float(x) for x in parts[1:]]
+                    points = np.array(coords).reshape(-1, 2)
+                    points[:, 0] *= width
+                    points[:, 1] *= height
+                    points = points.astype(np.int32)
+                    all_points.append(points)
+                
+                if all_points:
+                    cv2.fillPoly(mask, all_points, (255, 255, 255))
+                    masked_img = cv2.bitwise_and(cv2.imread(image_path), mask) # Use original image, not the one with green overlay
+                    _, buffer_seg = cv2.imencode('.png', masked_img)
+                    segmented_img_base64 = base64.b64encode(buffer_seg).decode('utf-8')
             
             return Response({
                 'filename': label_filename,
                 'annotation': annotation_data,
                 'image_base64': img_base64,
+                'segmented_image_base64': segmented_img_base64,
                 'message': 'Annotation generated successfully.' if annotation_data else 'No objects detected.'
             }, status=status.HTTP_200_OK)
 
