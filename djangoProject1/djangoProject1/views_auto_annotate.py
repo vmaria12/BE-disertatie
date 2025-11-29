@@ -176,8 +176,22 @@ class AutoAnnotateView(APIView):
                 
                 if all_points:
                     cv2.fillPoly(mask, all_points, (255, 255, 255))
-                    masked_img = cv2.bitwise_and(cv2.imread(image_path), mask) # Use original image, not the one with green overlay
-                    _, buffer_seg = cv2.imencode('.png', masked_img)
+                    
+                    # Get original image
+                    original_img = cv2.imread(image_path)
+                    
+                    # Create 4-channel image (BGRA)
+                    b, g, r = cv2.split(original_img)
+                    
+                    # Create alpha channel from mask (convert to grayscale 1-channel)
+                    # mask has 255 for tumor (white), 0 for background (black)
+                    mask_gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+                    
+                    # Merge to create BGRA
+                    # Tumor will be opaque (alpha=255), background transparent (alpha=0)
+                    rgba = cv2.merge([b, g, r, mask_gray])
+                    
+                    _, buffer_seg = cv2.imencode('.png', rgba)
                     segmented_img_base64 = base64.b64encode(buffer_seg).decode('utf-8')
             
             return Response({
