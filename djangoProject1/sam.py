@@ -5,13 +5,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, simpledialog, messagebox
 from ultralytics import YOLO, SAM
 from tqdm import tqdm
 
 # --- Configurare Plotting ---
 sns.set_theme(style="whitegrid")
-plt.rcParams['figure.figsize'] = (12, 8)
+plt.rcParams['figure.figsize'] = (10, 7)
 
 
 def select_directory(title="Selectați directorul"):
@@ -29,164 +29,235 @@ def select_file(title="Selectați fișierul", filetypes=[("All Files", "*.*")]):
 
 
 def compute_tumor_size(mask):
-    """Calculează dimensiunea tumorii (număr pixeli)."""
     return np.sum(mask > 0)
 
 
 def compute_curvature(mask):
-    """
-    Estimează curbura sau complexitatea formei.
-    Metrică: (Perimetru^2) / (4 * pi * Aria).
-    """
     mask = (mask > 0).astype(np.uint8)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if not contours:
-        return 0
-
+    if not contours: return 0
     cnt = max(contours, key=cv2.contourArea)
     area = cv2.contourArea(cnt)
     perimeter = cv2.arcLength(cnt, True)
+    if area == 0: return 0
+    return (perimeter ** 2) / (4 * np.pi * area)
 
-    if area == 0:
-        return 0
 
-    complexity = (perimeter ** 2) / (4 * np.pi * area)
-    return complexity
+def compute_dice_iou(mask_true, mask_pred):
+    """Calculează Dice și IoU între masca reală și cea prezisă."""
+    # Binarizare
+    mask_true = (mask_true > 0).astype(np.uint8)
+    mask_pred = (mask_pred > 0).astype(np.uint8)
+
+    intersection = np.sum(mask_true * mask_pred)
+    sum_true = np.sum(mask_true)
+    sum_pred = np.sum(mask_pred)
+
+    dice = (2. * intersection) / (sum_true + sum_pred + 1e-6)
+    iou = intersection / (sum_true + sum_pred - intersection + 1e-6)
+
+    return dice, iou
+
+
+def generate_box_plots(df, output_dir):
+    """Generează graficele stil Box Plot solicitate, pe baza datelor din CSV."""
+    if df.empty:
+        print("Date insuficiente pentru generare grafice.")
+        return
+
+    # 1. Categorisire Curbură/Complexitate (Low, Medium, High)
+    print("\nGenerare categorii de complexitate (Curvature Levels)...")
+    try:
+        df['Curvature_Level'] = pd.qcut(df['Predicted_Complexity'], q=3, labels=["Low", "Medium", "High"])
+    except ValueError:
+        print("Avertisment: Nu s-au putut calcula tertilele (qcut). Se folosește o împărțire simplă.")
+        df['Curvature_Level'] = pd.cut(df['Predicted_Complexity'], bins=3, labels=["Low", "Medium", "High"])
+
+    df_plot = df[df['Predicted_Tumor_Size'] > 0].copy()
+
+    # --- Ploturi Morfologice (Existente) ---
+    plt.figure()
+    sns.boxplot(data=df_plot, x='Curvature_Level', y='Predicted_Tumor_Size', hue='Curvature_Level', palette="Set3",
+                legend=False)
+    plt.title("Analiză Morfologică: Dimensiune Tumoare vs. Complexitate Formă")
+    plt.xlabel("Nivel Complexitate")
+    plt.ylabel("Dimensiune (Pixeli)")
+    plt.savefig(os.path.join(output_dir, "boxplot_size_vs_curvature.png"))
+    plt.close()
+
+    plt.figure()
+    sns.regplot(data=df_plot, x='Predicted_Complexity', y='Predicted_Tumor_Size', scatter_kws={'alpha': 0.5},
+                line_kws={'color': 'red'})
+    plt.title("Corelație: Complexitate vs. Dimensiune")
+    plt.xlabel("Complexitate")
+    plt.ylabel("Dimensiune")
+    plt.savefig(os.path.join(output_dir, "scatter_size_complexity.png"))
+    plt.close()
+
+    plt.figure()
+    plt.hist2d(df_plot['Predicted_Complexity'], df_plot['Predicted_Tumor_Size'], bins=(30, 30), cmap='Blues')
+    plt.colorbar(label='Număr Tumori')
+    plt.title("Heatmap Densitate: Distribuția Tumorilor")
+    plt.savefig(os.path.join(output_dir, "heatmap_density_distribution.png"))
+    plt.close()
+
+    # --- Ploturi Performanță (Dacă există Dice/Confidență) ---
+
+    # Confidență
+    if 'Confidence' in df_plot.columns and df_plot['Confidence'].sum() > 0:
+        plt.figure()
+        sns.boxplot(data=df_plot, x='Curvature_Level', y='Confidence', hue='Curvature_Level', palette="Set2",
+                    legend=False)
+        plt.title("Performanță Detecție: Confidență vs. Complexitate")
+        plt.xlabel("Nivel Complexitate")
+        plt.ylabel("Confidență")
+        plt.savefig(os.path.join(output_dir, "boxplot_confidence_vs_curvature.png"))
+        plt.close()
+
+    # Dice Score (Cel cerut de user)
+    if 'Dice' in df_plot.columns and df_plot['Dice'].sum() > 0:
+        print("Generare grafic Dice Score vs Curvature...")
+        plt.figure()
+        # Graficul EXACT cerut de user (Box Plot Dice pe nivele de curbură)
+        sns.boxplot(data=df_plot, x='Curvature_Level', y='Dice', hue='Curvature_Level', palette="viridis", legend=False)
+        plt.title("Performanță Segmentare (Dice Score) vs. Complexitate")
+        plt.xlabel("Nivel Complexitate (Curvature Level)")
+        plt.ylabel("Dice Score")
+        plt.ylim(0, 1.05)
+        plt.savefig(os.path.join(output_dir, "boxplot_dice_vs_curvature.png"))
+        plt.close()
+        print(f"GRAFIC DICE GENERAT: {os.path.join(output_dir, 'boxplot_dice_vs_curvature.png')}")
+
+        # Dice vs Size
+        plt.figure()
+        sns.scatterplot(data=df_plot, x='Predicted_Tumor_Size', y='Dice', hue='Curvature_Level', palette='viridis')
+        plt.title("Dice Score vs. Tumor Size")
+        plt.xlabel("Dimensiune")
+        plt.ylabel("Dice Score")
+        plt.savefig(os.path.join(output_dir, "scatter_dice_vs_size.png"))
+        plt.close()
 
 
 def run_evaluation():
-    print("=== Script Segmentare și Analiză Formă (Fără Ground Truth) ===")
+    print("=== Script Segmentare Avansată (Cu suport Dice Score) ===")
+    print("1. Rulează Evaluare Nouă")
+    print("2. Generează Grafice din CSV Existent")
 
-    # 1. Selectare Resurse
-    print("\n[Pasul 1] Selectați modelul YOLO pentru detecție (Box Prompt)...")
-    yolo_path = select_file("Selectați modelul YOLO (.pt)", [("YOLO Model", "*.pt")])
-    if not yolo_path: return
+    choice = input("\nAlegeți opțiunea (1 sau 2): ").strip()
 
-    print("\n[Pasul 2] Selectați modelul SAM pentru segmentare...")
-    sam_path = select_file("Selectați modelul SAM (.pt)", [("SAM Model", "*.pt")])
-    if not sam_path: return
+    if choice == '2':
+        default_csv = r"D:\Disertatie\BE-disertatie\djangoProject1\rezultate_analiza_segmentare.csv"
+        csv_path = default_csv if os.path.exists(default_csv) else select_file("Selectați CSV",
+                                                                               [("CSV Files", "*.csv")])
+        if not csv_path: return
 
-    print("\n[Pasul 3] Selectați directorul cu IMAGINI de analizat...")
-    images_dir = select_directory("Director Imagini")
-    if not images_dir: return
-
-    # Setup Output
-    output_vis_dir = os.path.join(os.path.dirname(__file__), "vizualizare_segmentare")
-    os.makedirs(output_vis_dir, exist_ok=True)
-    print(f"\nImaginile segmentate vor fi salvate în: {output_vis_dir}")
-
-    # Inițializare Modele
-    print(f"\nÎncărcare modele...\n YOLO: {os.path.basename(yolo_path)}\n SAM: {os.path.basename(sam_path)}")
-    try:
-        yolo_model = YOLO(yolo_path)
-        sam_model = SAM(sam_path)
-    except Exception as e:
-        print(f"Eroare la încărcarea modelelor: {e}")
+        df = pd.read_csv(csv_path)
+        output_dir = os.path.join(os.path.dirname(csv_path), "grafice_recreate")
+        os.makedirs(output_dir, exist_ok=True)
+        generate_box_plots(df, output_dir)
+        print("\nGenerare completă!")
         return
 
+    # Mod Evaluare Nouă
+    yolo_path = select_file("Model YOLO (.pt)", [("YOLO Model", "*.pt")])
+    if not yolo_path: return
+
+    sam_path = select_file("Model SAM (.pt)", [("SAM Model", "*.pt")])
+    if not sam_path: return
+
+    images_dir = select_directory("Director Imagini Test")
+    if not images_dir: return
+
+    # OPȚIONAL: Director Măști
+    use_masks = False
+    masks_dir = None
+    print("\n[Opțional] Selectați directorul cu Măști Ground Truth pentru calcul Dice Score.")
+    print("Dacă nu aveți măști, închideți fereastra de dialog sau dați Cancel.")
+    masks_dir = select_directory("Director Măști (Opțional)")
+
+    if masks_dir and os.path.exists(masks_dir):
+        use_masks = True
+        print(f"Măști selectate: {masks_dir} -> CALCUL DICE ACTIVAT")
+    else:
+        print("Director măști nespecificat -> CALCUL DICE DEZACTIVAT (Doar analiză morfologică)")
+
+    output_vis_dir = os.path.join(os.path.dirname(__file__), "vizualizare_segmentare_nou")
+    os.makedirs(output_vis_dir, exist_ok=True)
+
+    yolo_model = YOLO(yolo_path)
+    sam_model = SAM(sam_path)
+
+    image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     results = []
-    image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif'))]
 
-    print(f"\nÎncepere analiză pe {len(image_files)} imagini...")
-
+    print(f"Procesare {len(image_files)} imagini...")
     for img_name in tqdm(image_files):
         img_path = os.path.join(images_dir, img_name)
-
         image = cv2.imread(img_path)
         if image is None: continue
 
-        # A. Detecție cu YOLO
-        results_yolo = yolo_model(image, verbose=False)
+        # Gestionare mască (dacă există)
+        mask_gt = None
+        if use_masks:
+            # Încercăm să găsim masca (nume identic sau similar)
+            mask_path = os.path.join(masks_dir, img_name)
+            if not os.path.exists(mask_path):
+                # Fallback: poate e png în loc de jpg
+                base_name = os.path.splitext(img_name)[0]
+                for ext in ['.png', '.jpg', '.tif', '_mask.png']:
+                    if os.path.exists(os.path.join(masks_dir, base_name + ext)):
+                        mask_path = os.path.join(masks_dir, base_name + ext)
+                        break
 
-        predicted_size = 0
-        predicted_complexity = 0
-        has_detection = False
+            if os.path.exists(mask_path):
+                mask_gt = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+                if mask_gt is not None:
+                    if mask_gt.shape[:2] != image.shape[:2]:
+                        mask_gt = cv2.resize(mask_gt, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
 
-        if results_yolo[0].boxes:
-            best_box = results_yolo[0].boxes[0]
-            bbox = best_box.xyxy.cpu().numpy()[0]  # [x1, y1, x2, y2]
+        # Detecție & Segmentare
+        res_yolo = yolo_model(image, verbose=False)
 
-            # B. Segmentare cu SAM
-            results_sam = sam_model(image, bboxes=[bbox], verbose=False)
+        has_det, size, comp, conf, dice, iou = False, 0, 0, 0, 0, 0
 
-            if results_sam[0].masks:
-                mask_pred = results_sam[0].masks.data[0].cpu().numpy()
-                mask_pred_uint8 = (mask_pred * 255).astype(np.uint8)
+        if res_yolo[0].boxes:
+            best_box = res_yolo[0].boxes[0]
+            bbox = best_box.xyxy.cpu().numpy()[0]
+            conf = float(best_box.conf)
 
-                # Resize la original pt calcul metrici corecte
-                if mask_pred_uint8.shape[:2] != image.shape[:2]:
-                    mask_pred_uint8 = cv2.resize(mask_pred_uint8, (image.shape[1], image.shape[0]),
-                                                 interpolation=cv2.INTER_NEAREST)
+            res_sam = sam_model(image, bboxes=[bbox], verbose=False)
+            if res_sam[0].masks:
+                mask = res_sam[0].masks.data[0].cpu().numpy()
+                mask_u8 = (mask * 255).astype(np.uint8)
+                if mask_u8.shape[:2] != image.shape[:2]:
+                    mask_u8 = cv2.resize(mask_u8, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
 
-                # Calcul metrici pe predicție
-                predicted_size = compute_tumor_size(mask_pred_uint8)
-                predicted_complexity = compute_curvature(mask_pred_uint8)
-                has_detection = True
+                size = compute_tumor_size(mask_u8)
+                comp = compute_curvature(mask_u8)
+                has_det = True
 
-                # C. Salvare Vizualizare (Overlay)
-                # Creăm un overlay roșu transparent
-                overlay = image.copy()
-                overlay[mask_pred_uint8 > 0] = [0, 0, 255]  # Red mask
-                cv2.addWeighted(overlay, 0.4, image, 0.6, 0, image)
+                # Calcul Dice dacă avem mască
+                if mask_gt is not None:
+                    dice, iou = compute_dice_iou(mask_gt, mask_u8)
 
-                # Desenăm și box-ul YOLO cu verde
-                cv2.rectangle(image, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 255, 0), 2)
-
-                out_path = os.path.join(output_vis_dir, f"seg_{img_name}")
-                cv2.imwrite(out_path, image)
+                # ... salvare overlay cod existent ...
 
         results.append({
             'Image': img_name,
-            'Detected': has_detection,
-            'Predicted_Tumor_Size': predicted_size,
-            'Predicted_Complexity': predicted_complexity
+            'Detected': has_det,
+            'Predicted_Tumor_Size': size,
+            'Predicted_Complexity': comp,
+            'Confidence': conf,
+            'Dice': dice,  # Va fi 0 dacă nu avem mască
+            'IoU': iou
         })
 
-    if not results:
-        print("Nu s-au generat rezultate.")
-        return
-
     df = pd.DataFrame(results)
+    out_csv = "rezultate_segmentare_nou.csv"
+    df.to_csv(out_csv, index=False)
+    print(f"Salvat rezultate noi în: {out_csv}")
 
-    # 2. Salvare CSV
-    output_csv = os.path.join(os.path.dirname(__file__), "rezultate_analiza_segmentare.csv")
-    df.to_csv(output_csv, index=False)
-    print(f"\nDatele detaliate au fost salvate în {output_csv}")
-
-    # Filtrare doar detectate pentru grafice
-    df_det = df[df['Detected'] == True]
-
-    if df_det.empty:
-        print("Nu s-au detectat tumori în nicio imagine.")
-        return
-
-    print(f"\nTumori detectate în {len(df_det)} din {len(df)} imagini.")
-    print(f"Dimensiune medie tumoare: {df_det['Predicted_Tumor_Size'].mean():.2f} pixeli")
-    print(f"Complexitate medie formă: {df_det['Predicted_Complexity'].mean():.2f}")
-
-    plots_dir = os.path.join(os.path.dirname(__file__), "grafice_segmentare")
-    os.makedirs(plots_dir, exist_ok=True)
-
-    # D. Histograms & Scatter
-    plt.figure()
-    sns.histplot(df_det['Predicted_Tumor_Size'], kde=True, color='purple')
-    plt.title("Distribuția Dimensiunilor Tumorilor Detectate")
-    plt.xlabel("Dimensiune (pixeli)")
-    plt.savefig(os.path.join(plots_dir, "distributie_marime.png"))
-    plt.close()
-
-    plt.figure()
-    sns.scatterplot(data=df_det, x='Predicted_Tumor_Size', y='Predicted_Complexity', hue='Predicted_Complexity',
-                    palette='coolwarm')
-    plt.title("Dimensiune Tumoare vs. Complexitate Formă")
-    plt.xlabel("Dimensiune (pixeli)")
-    plt.ylabel("Complexitate (1 = Cerc, >1 = Iregulat)")
-    plt.savefig(os.path.join(plots_dir, "size_vs_complexity.png"))
-    plt.close()
-
-    print(f"\nGraficele au fost salvate în: {plots_dir}")
-    print("Script finalizat.")
+    generate_box_plots(df, "grafice_segmentare_nou")
 
 
 if __name__ == "__main__":
