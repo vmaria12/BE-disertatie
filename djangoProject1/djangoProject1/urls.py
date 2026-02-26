@@ -24,6 +24,7 @@ from .views_cnn_vit_voting_label import CnnVitVotingLabelView
 from .views_classification_report import ClassificationReportView, ClassificationReportCroppedView, ClassificationReportSamView
 from .views_auto_annotate import AutoAnnotateView
 from .views_gradcam import GradCamView
+from .views_lime import LimeView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -55,4 +56,7 @@ urlpatterns = [
 
     # Grad-CAM
     path('api/detect-tumor/grad-cam', GradCamView.as_view(), name='grad-cam'),
+
+    # LIME
+    path('api/detect-tumor/lime', LimeView.as_view(), name='lime'),
 ]
