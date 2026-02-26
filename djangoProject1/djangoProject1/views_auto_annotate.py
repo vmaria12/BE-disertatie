@@ -19,7 +19,9 @@ class AutoAnnotateView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     @extend_schema(
-        request=ImageUploadSerializer,
+        request={
+            "multipart/form-data": ImageUploadSerializer
+        },
         responses={200: AutoAnnotateResponseSerializer},
         summary="Auto Annotate Image",
         description="Upload an image to generate YOLO segmentation annotations using SAM 2.1. Can optionally provide a 'bbox' (JSON [x1, y1, x2, y2]) to skip detection and segment specific area."
